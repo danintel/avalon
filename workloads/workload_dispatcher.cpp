@@ -18,6 +18,7 @@
 #include "workload_processor.h"
 #include "echo_work_order/echo_workorder.h"
 #include "heart_disease_eval/heart_disease_evaluation.h"
+#include "cookiejar/cookiejar.h"
 
 ByteArray ConvertStringToByteArray(std::string s) {
     ByteArray ba(s.begin(), s.end());
@@ -100,6 +101,52 @@ public:
       }
 } heart_disease_eval_worker;
 
+class CookieJarFactory: public tcf::contracts::WorkloadInterpreter         
+{                                                            
+public:                                                      
+   void process_work_order(                                  
+       std::string code_id,                                  
+       ByteArray participant_address,                        
+       ByteArray enclave_id,                                 
+       ByteArray work_order_id,                              
+       const std::vector<tcf::WorkOrderData>& in_work_order_data,
+        std::vector<tcf::WorkOrderData>& out_work_order_data)
+   {                                                         
+       std::string result_str;                               
+        int i = 0;                                           
+        int out_wo_data_size = out_work_order_data.size();   
+ 
+        for(auto wo_data : in_work_order_data)               
+        {                                                    
+            std::string inputData = ByteArrayToString(wo_data.decrypted_data);
+            try{                                             
+                result_str = executeCookieJarWorkOrder(inputData);
+            }                                                
+            catch(...)                                       
+            {                                                
+                // Temp Implementation                       
+                result_str = inputData;                      
+            }                                                
+                                                             
+            // If the out_work_order_data has entry to hold the data       
+           if(i < out_wo_data_size)                          
+            {                                                
+                tcf::WorkOrderData& out_wo_data = out_work_order_data.at(i);
+                out_wo_data.decrypted_data = ConvertStringToByteArray(result_st
+r);
+            }                                                
+            else
+            {                                                
+                // Create a new entry                        
+                out_work_order_data.emplace_back(wo_data.index, ConvertStringTo
+ByteArray(result_str));
+            }                                                
+
+            i++;                                             
+        }                                                    
+    };                                                       
+} cookiejar_worker;                                          
+
 tcf::WorkOrderProcessorInterface* EchoResultFactory() {
         return &echo_result;
 }
@@ -108,8 +155,14 @@ tcf::WorkOrderProcessorInterface* HeartDiseaseEvalFactory() {
         return &heart_disease_eval_worker;
 }
 
+tcf::contracts::WorkloadInterpreter* CookiejarFactory()     
+{
+   return &cookiejar_worker;                                 
+}                                                            
+
 WorkOrderDispatchTableEntry workOrderDispatchTable[] = {
     { "echo-result:", EchoResultFactory},
     { "heart-disease-eval:", HeartDiseaseEvalFactory },
+    { "cookiejar:", CookiejarFactory },
     {NULL, NULL}
 };

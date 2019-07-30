@@ -48,4 +48,5 @@ TARGET_COMPILE_DEFINITIONS(${WORKLOAD_STATIC_NAME} PRIVATE "-DUSE_DL=1")
 ################################################################################
 ADD_SUBDIRECTORY(echo_work_order)
 ADD_SUBDIRECTORY(heart_disease_eval)
+ADD_SUBDIRECTORY(cookiejar)
 
