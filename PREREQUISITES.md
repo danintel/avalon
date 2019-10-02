@@ -50,11 +50,6 @@ These are used to find the Intel Software Guard Extensions (SGX) Software
 Development Kit (SDK). They are normally set by sourcing the Intel SGX SDK
 activation script (e.g. `source /opt/intel/sgxsdk/environment`)
 
-- `PKG_CONFIG_PATH` and `LD_LIBRARY_PATH` also contain the the path to
-  [OpenSSL](#openssl) package config files and libraries, respectively,
-  if you build your own OpenSSL. You need to do this when pre-built OpenSSL
-  version 1.1.1d or later packages are not available for your system
-
 - `SGX_MODE`
 This variable is used to switch between the Intel SGX simulator and hardware
 mode. Set `SGX_MODE` to either `HW` (Intel SGX available) or
@@ -143,7 +138,7 @@ The following instructions download the Intel SGX SDK 2.3 and installs it in
 ```
 sudo mkdir -p /opt/intel
 cd /opt/intel
-wget https://download.01.org/intel-sgx/linux-2.3.1/ubuntu18.04/sgx_linux_x64_sdk_2.3.101.46683.bin
+sudo wget https://download.01.org/intel-sgx/linux-2.3.1/ubuntu18.04/sgx_linux_x64_sdk_2.3.101.46683.bin
 echo "yes" | sudo bash ./sgx_linux_x64_sdk_2.3.101.46683.bin
 ```
 
@@ -290,42 +285,30 @@ wget 'http://http.us.debian.org/debian/pool/main/o/openssl/libssl-dev_1.1.1d-1_a
 sudo dpkg -i libssl1.1_1.1.1d-1_amd64.deb
 sudo dpkg -i libssl-dev_1.1.1d-1_amd64.deb
 sudo apt-get install -f
-dpkg -l libssl1.1 libssl-dev
 ```
+
+To verify installation, type `dpkg -l libssl1.1 libssl-dev`.
 
 ## Alternate method: OpenSSL Build
 If you are unable to locate a suitable pre-compiled package for your system,
 you can build OpenSSL from source using the following commands. If you
 installed the package directly as described above you do *not* need to do this.
-These steps detail installing OpenSSL to the `install` directory under your
-current working directory.
+These steps detail installing OpenSSL to the `/usr/local` directory.
 
 ```
 cd /var/tmp
 wget https://www.openssl.org/source/openssl-1.1.1d.tar.gz
 tar -xzf openssl-1.1.1d.tar.gz
-cd openssl-1.1.1d/
-mkdir ../install
-./Configure --prefix=$PWD/../install
-./config --prefix=$PWD/../install
-THREADS=8
-make -j$THREADS
+cd openssl-1.1.1d
+./Configure --prefix=/usr/local
+./config --prefix=/usr/local
+make
 make test
-make install -j$THREADS
+make install
+ldconfig
 cd ..
 ```
 
-If the above succeeds, define/extend the `PKG_CONFIG_PATH` environment variable
-accordingly, e.g.,
-```
-export PKG_CONFIG_PATH="$PWD/install/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
-```
-If you installed in a standard location (e.g., default `/usr/local/lib`),
-run `ldconfig` .
-If you installed in a non-standard location, extend `LD_LIBRARY_PATH`, e.g.,
-```
-export LD_LIBRARY_PATH="$PWD/install/lib/${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-```
 
 # <a name="sgxssl"></a>Intel SGX OpenSSL
 
