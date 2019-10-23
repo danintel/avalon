@@ -1,0 +1,514 @@
+#! /usr/bin/env python3
+
+# Copyright 2019 Intel Corporation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Heart Evaluation GUI Client for use in submitting data to worker.
+
+import os
+import sys
+import random
+import json
+import argparse
+import logging
+import secrets
+import time
+from PIL import ImageTk,Image
+
+# Tkinter imports
+import tkinter as tk
+import tkinter.messagebox as messagebox
+import tkinter.font as font
+
+
+# TCF imports
+from service_client.generic import GenericServiceClient
+import utility.utility as utility
+import worker.worker_details as worker
+from utility.tcf_types import WorkerType
+from work_order.work_order_params import WorkOrderParams
+from connectors.direct.direct_json_rpc_api_connector \
+	import DirectJsonRpcApiConnector
+import config.config as pconfig
+import utility.logger as plogger
+import crypto.crypto as crypto
+from error_code.error_status import WorkOrderStatus
+import utility.signature as signature
+from error_code.error_status import SignatureStatus
+
+# Remove duplicate loggers
+for handler in logging.root.handlers[:]:
+	logging.root.removeHandler(handler)
+logger = logging.getLogger(__name__)
+# Default TCFHOME assumes PWD is examples/apps/heart_disease_eval/client :
+TCFHOME = os.environ.get("TCF_HOME", "../../../../")
+
+# GUI color scheme
+#BACKGROUND = "light sky blue"
+#ENTRY_COLOR = "light grey"
+#BUTTON_COLOR = "deep sky blue"
+#RESULT_BACKGROUND = "pale goldenrod"
+BACKGROUND = "wheat2"
+ENTRY_COLOR = "light grey"
+BUTTON_COLOR = "wheat3"
+RESULT_BACKGROUND = "RosyBrown1"
+
+# -----------------------------------------------------------------
+
+
+class resultWindow(tk.Toplevel):
+	"""Create result window that appears after clicking "Evaluate"."""
+
+	def __init__(self, parent, message):
+		tk.Toplevel.__init__(self, parent)
+		self.config(background=RESULT_BACKGROUND)
+		self.parent = parent
+		# Lock main window
+		self.transient(parent)
+		self.grab_set()
+		self.initial_focus = self
+		self.initial_focus.focus_set()
+		self.title("Insurance Company Evaluation Result")
+		self.protocol("WM_DELETE_WINDOW", self.close)
+
+		# Main content
+		self.main_frame = tk.Frame(self, background=RESULT_BACKGROUND)
+		self.main_frame.pack()
+
+		self.frame1 = tk.Frame(self.main_frame)
+		self.frame1.pack(side=tk.LEFT)
+		self.result_text = tk.StringVar()
+		self.label = tk.Label(self.frame1,
+			textvariable=self.result_text, width=45,
+			background=RESULT_BACKGROUND)
+		default_font = font.Font(font="TkDefaultFont")
+		new_font = default_font
+		new_font.config(weight=font.BOLD)
+		self.label.config(font=new_font)
+		self.label.pack()
+
+		# JSON window display sidebar buttons
+		self.frame2 = tk.Frame(self.main_frame,
+			background=RESULT_BACKGROUND)
+		self.frame2.pack(side=tk.LEFT)
+
+		self.frame2 = tk.Frame(self.frame2,
+			background=RESULT_BACKGROUND)
+		self.frame2.pack(side=tk.LEFT)
+
+		self.request_button = tk.Button(
+			self.frame2, text="View Request", command=self.request,
+			background=BUTTON_COLOR)
+		self.request_button.pack(fill=tk.X, padx=(0,10), pady=(10,0))
+
+		self.result_button = tk.Button(
+			self.frame2, text="View Result", command=self.result,
+			background=BUTTON_COLOR)
+		self.result_button.pack(fill=tk.X, padx=(0,10),pady=(10,0))
+
+		self.receipt_button = tk.Button(
+			self.frame2, text="View Receipt",
+			command=self.receipt, background=BUTTON_COLOR)
+		self.receipt_button.pack(fill=tk.X, padx=(0,10),pady=(10,0))
+
+		# Close button
+		self.close_button = tk.Button(self, text="Close",
+			command=self.close, background=BUTTON_COLOR)
+		self.close_button.pack(pady=(0,5))
+
+		self.evaluate(message)
+
+	def evaluate(self, message):
+		"""Create and submit workorder and wait for result."""
+
+		self.result_text.set("Waiting for insurance company evaluation result...")
+		self.update()
+
+		# Create, sign, and submit workorder.
+		# Convert workloadId to hex.
+		workload_id = "heart-disease-eval"
+		workload_id = workload_id.encode("UTF-8").hex()
+		session_iv = utility.generate_iv()
+		session_key = utility.generate_key()
+		encrypted_session_key = utility.generate_encrypted_key(
+			session_key, worker_obj.encryption_key)
+		requester_nonce = secrets.token_hex(16)
+		work_order_id = secrets.token_hex(32)
+		requester_id = secrets.token_hex(32)
+		wo_params = WorkOrderParams(
+			work_order_id, worker_id, workload_id, requester_id,
+			session_key, session_iv, requester_nonce,
+			result_uri=" ", notify_uri=" ",
+			worker_encryption_key=worker_obj.encryption_key,
+			data_encryption_algorithm="AES-GCM-256"
+		)
+		wo_params.add_in_data(message)
+
+		wo_params.add_encrypted_request_hash()
+
+		if requester_signature:
+			private_key = utility.generate_signing_keys()
+			# Add requester signature and requester verifying_key
+			if wo_params.add_requester_signature(private_key) == \
+				False:
+				logger.info("Work order request signing failed")
+				exit(1)
+
+		# Set text for JSON sidebar
+		req_id = 51
+		self.request_json = wo_params.to_string()
+
+		work_order_instance = direct_jrpc.create_work_order(
+			config
+		)
+		response = work_order_instance.work_order_submit(
+			wo_params.get_params(),
+			wo_params.get_in_data(),
+			wo_params.get_out_data(),
+			id=req_id
+		)
+		logger.info("Work order submit response : {}\n ".format(
+			json.dumps(response, indent=4)
+		))
+		if "error" in response and response["error"]["code"] != \
+		    WorkOrderStatus.PENDING:
+			sys.exit(1)
+		req_id += 1
+
+		# Retrieve result and set GUI result text
+		res = work_order_instance.work_order_get_result(
+			work_order_id,
+			req_id
+		)
+		self.result_json = json.dumps(res, indent=4)
+		if "result" in res:
+			sig_obj = signature.ClientSignature()
+			status = sig_obj.verify_signature(res,
+				worker_obj.verification_key)
+			try:
+				if status == SignatureStatus.PASSED:
+					logger.info("Signature verification" + \
+						" Successful")
+					decrypted_res = utility. \
+						decrypted_response(
+						res, session_key, session_iv)
+					logger.info("\n" + \
+						"Decrypted response:\n {}".
+						format(decrypted_res))
+				else:
+					logger.info("Signature verification" + \
+						" Failed")
+					sys.exit(1)
+			except:
+				logger.info("ERROR: Failed to decrypt response")
+				sys.exit(1)
+		else:
+			logger.info("\n Work order get result failed {}\n". \
+				format(res))
+			sys.exit(1)
+
+		# Set text for JSON sidebar
+		self.result_text.set(
+			decrypted_res[0]["data"])
+
+		# Retrieve receipt
+		# Set text for JSON sidebar
+		wo_receipt_instance = direct_jrpc.create_work_order_receipt(
+			config
+		)
+		req_id += 1
+		self.receipt_json = json.dumps(
+			wo_receipt_instance.work_order_receipt_retrieve(
+				work_order_id,
+				req_id
+			),
+			indent=4
+		)
+
+	def request(self):
+		jsonWindow(self, self.request_json, "Request JSON")
+
+	def result(self):
+		jsonWindow(self, self.result_json, "Result JSON")
+
+	def receipt(self):
+		jsonWindow(self, self.receipt_json, "Receipt JSON")
+
+	def close(self):
+		self.parent.focus_set()
+		self.destroy()
+
+class jsonWindow(tk.Toplevel):
+	"""Template for JSON display
+	   (from clicking View Request/Result/Receipt buttons).
+	"""
+
+	def __init__(self, parent, json, title):
+		tk.Toplevel.__init__(self, parent)
+		self.title(title)
+		self.scrollbar = tk.Scrollbar(self)
+		self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+		self.text = tk.Text(self, yscrollcommand=self.scrollbar.set)
+		self.text.insert(tk.END, json)
+		self.text.config(state=tk.DISABLED)
+		self.text.pack(expand=True, fill="both")
+
+		self.scrollbar.config(command=self.text.yview)
+
+def gui_main():
+	"""Create main Tkinter window and "Evaluate" event handler."""
+
+	root = tk.Tk()
+	root.title("INSURANCE COMPANY CLIENT")
+	root.config(background=BACKGROUND)
+
+
+	var_root = tk.Frame(root, background=BACKGROUND)
+	var_root.pack(pady=(10,0))
+	v_frame1 = tk.Frame(var_root, background=BACKGROUND)
+	v_frame1.pack(fill=tk.Y, side=tk.LEFT, padx=(10,0))
+	v_frame2 = tk.Frame(var_root, background=BACKGROUND)
+	v_frame2.pack(fill=tk.Y, side=tk.LEFT, padx=(0,10))
+	# Organizes parameter grid
+	global cur_row
+	cur_row = 0
+
+	# Parameter grid
+
+
+	# Input vars as string option with a check button to enable
+
+	# Option to enter data as space-separated string entries
+	string_frame = tk.Frame(root, background=ENTRY_COLOR)
+	string_frame.pack()
+
+	# Display title
+	string_label = tk.Label(string_frame,
+		text="    Insurance Company Client Application       ",
+		background=BACKGROUND)
+	string_label.pack(side=tk.LEFT)
+
+	# Display image
+	imageFile = TCFHOME + \
+		"/examples/apps/heart_disease_eval/client/images/insurance.png"
+	img = ImageTk.PhotoImage(Image.open(imageFile))  
+	#canvas = Canvas(root, width=320, height=237, background=BACKGROUND)
+	canvas = tk.Canvas(root, width=140, height=150, background=BACKGROUND)
+	canvas.pack()
+	canvas.create_image(20, 20, anchor=tk.NW, image=img) 
+
+	def evaluate():
+		"""Open window that will submit work order and retrieve
+		   an evaluation result.
+		"""
+
+		message = "Retrieving insurance company heart disease risk"
+		input_data = ""
+		root.wait_window(resultWindow(root, message))
+
+	# "Evaluate" button
+	eval_text = tk.StringVar()
+	eval_label = tk.Label(root, textvariable=eval_text,
+		background=BACKGROUND)
+	eval_label.pack()
+	eval_button = tk.Button(root, text="Get Heart Disease Risk",
+		command=evaluate, background=BUTTON_COLOR)
+	eval_button.pack(pady=(0,10))
+
+	root.mainloop()
+
+def parse_command_line(args):
+	"""Setup and parse command line arguments and help information."""
+
+	global worker_obj
+	global worker_id
+	global verbose
+	global config
+	global off_chain
+	global requester_signature
+
+	parser = argparse.ArgumentParser()
+	use_service = parser.add_mutually_exclusive_group()
+	parser.add_argument("-c", "--config",
+		help="the config file containing the" + \
+		" Ethereum contract information", type=str)
+	use_service.add_argument("-r", "--registry-list",
+		help="the Ethereum address of the registry list",
+		type=str)
+	use_service.add_argument("-s", "--service-uri",
+		help="skip URI lookup and send to specified URI",
+		type=str)
+	use_service.add_argument("-o", "--off-chain",
+		help="skip URI lookup and use the registry in the config file",
+		action="store_true")
+	parser.add_argument("-w", "--worker-id",
+		help="skip worker lookup and retrieve specified worker",
+		type=str)
+	parser.add_argument("-v", "--verbose",
+		help="increase output verbosity",
+		action="store_true")
+	parser.add_argument("-rs", "--requester_signature",
+		help="Enable requester signature for work order requests",
+		action="store_true")
+
+	options = parser.parse_args(args)
+
+	if options.config:
+		conf_files = [options.config]
+	else:
+		conf_files = [ TCFHOME + \
+			"/examples/common/python/connectors/tcf_connector.toml"
+			]
+	conf_paths = [ "." ]
+
+	try :
+		config = pconfig.parse_configuration_files(conf_files,
+			conf_paths)
+		config_json_str = json.dumps(config, indent=4)
+	except pconfig.ConfigurationException as e :
+		logger.error(str(e))
+		sys.exit(-1)
+
+	global direct_jrpc
+	direct_jrpc = DirectJsonRpcApiConnector(conf_files[0])
+
+	# Whether or not to connect to the registry list on the blockchain
+	off_chain = False
+
+	if options.registry_list:
+		config["ethereum"]["direct_registry_contract_address"] = \
+			options.registry_list
+
+	if options.service_uri:
+		service_uri = options.service_uri
+		off_chain = True
+		uri_client = GenericServiceClient(service_uri)
+
+	if options.off_chain:
+		service_uri = config["tcf"].get("json_rpc_uri")
+		off_chain = True
+		uri_client = GenericServiceClient(service_uri)
+
+	requester_signature = options.requester_signature
+
+	service_uri = options.service_uri
+	verbose = options.verbose
+	worker_id = options.worker_id
+
+	# Initializing Worker Object
+	worker_obj = worker.SGXWorkerDetails()
+
+def initialize_logging(config):
+	"""Initialize logging."""
+
+	if verbose:
+		config["Logging"] = {
+			"LogFile" : "__screen__",
+			"LogLevel" : "INFO"
+		}
+	else:
+		config["Logging"] = {
+			"LogFile" : "__screen__",
+			"LogLevel" : "WARN"
+		}
+	plogger.setup_loggers(config.get("Logging", {}))
+	sys.stdout = plogger.stream_to_logger(
+		logging.getLogger("STDOUT"), logging.DEBUG)
+	sys.stderr = plogger.stream_to_logger(
+		logging.getLogger("STDERR"), logging.WARN)
+
+def initialize_tcf(config):
+	"""Initialize TCF: get TCF worker instance."""
+
+	logger.info("***************** TRUSTED COMPUTE FRAMEWORK (TCF)" + \
+		" *****************")
+
+	# Retrieve Worker Registry
+	if not off_chain:
+		registry_list_instance = direct_jrpc. \
+			create_worker_registry_list(config)
+		registry_count, lookup_tag, registry_list = \
+			registry_list_instance.registry_lookup()
+		logger.info("\n Registry lookup response : registry count {}\
+			lookup tag {} registry list {}\n".format(
+			registry_count, lookup_tag, registry_list
+		))
+		if (registry_count == 0):
+			logger.warn("No registries found")
+			sys.exit(1)
+		registry_retrieve_result = \
+			registry_list_instance.registry_retrieve(
+				registry_list[0]
+		)
+		logger.info("\n Registry retrieve response : {}\n".format(
+			registry_retrieve_result
+		))
+		config["tcf"]["json_rpc_uri"] = registry_retrieve_result[0]
+
+	# Prepare worker
+
+	global worker_id
+	if not worker_id:
+		worker_registry_instance = direct_jrpc.create_worker_registry(
+			config
+		)
+		req_id = 31
+		worker_lookup_result = worker_registry_instance.worker_lookup(
+			worker_type=WorkerType.TEE_SGX,
+			id=req_id
+		)
+		logger.info("\n Worker lookup response : {} \n",
+			json.dumps(worker_lookup_result, indent=4)
+		)
+		if "result" in worker_lookup_result and \
+			"ids" in worker_lookup_result["result"].keys():
+			if worker_lookup_result["result"]["totalCount"] != 0:
+				worker_id = \
+					worker_lookup_result["result"]["ids"][0]
+			else:
+				logger.error("ERROR: No workers found")
+				sys.exit(1)
+		else:
+			logger.error("ERROR: Failed to lookup worker")
+			sys.exit(1)
+	req_id += 1
+	worker = worker_registry_instance.worker_retrieve(
+		worker_id,
+		req_id
+	)
+	logger.info("\n Worker retrieve response : {}\n".format(
+		json.dumps(worker, indent=4)
+	))
+	worker_obj.load_worker(
+		worker
+	)
+	logger.info("**********Worker details Updated with Worker ID" + \
+		"*********\n%s\n", worker_id)
+
+
+def main(args=None):
+	"""Entry point function."""
+
+	parse_command_line(args)
+
+	initialize_logging(config)
+
+	initialize_tcf(config)
+
+	# Open GUI
+	gui_main()
+
+#------------------------------------------------------------------------------
+main()
