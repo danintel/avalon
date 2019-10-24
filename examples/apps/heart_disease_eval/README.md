@@ -14,7 +14,7 @@ You may run the CLI demo in standalone mode or in a Docker container.
 
 ## Using the Heart Evaluation Interactive Command Line Client
 
-The command line client `generic_client.py` allows you to submit
+The command line client `heart_cli.py` allows you to submit
 requests on the command line.
 
 1.  If needed, update the Ethereum account and direct registry contract
@@ -32,11 +32,10 @@ requests on the command line.
     ```bash
     export WALLET_PRIVATE_KEY="B413189C95B48737AE2D9AF4CAE97EB03F4DE40599DF8E6C89DCE4C2E2CBA8DE"
     ```
-5.  In Terminal 2 run `cd $TCF_HOME/examples/apps/generic_client`
+5.  In Terminal 2 run `cd $TCF_HOME/examples/apps/heart_disease_eval`
 6.  In Terminal 2, run
     ``` bash
-    ./generic_client.py --uri "http://localhost:1947" \
-        --workload_id "heart-disease-eval" \
+    ./heart_cli.py --uri "http://localhost:1947" \
         --in_data "Data: 25 10 1 67 102 125 1 95 5 10 1 11 36 1"
     ```
 7.  The data will be submitted to the worker and the results will appear shortly:
@@ -45,7 +44,8 @@ requests on the command line.
     You have a risk of 46% to have heart disease.
     ```
 8.  Optionally submit another request.
-    Use the `--help` option to see other available options
+    Use the `--help` option to see other available options.
+    If you omit the `--in_data` parameter, it will be randomly generated
 9.  In Terminal 1, press Ctrl-c to stop the TCF Enclave Manager and Listener
 
 ## Using the Heart Evaluation GUI Client
